@@ -25,7 +25,7 @@ def split_tokens(corpus: str) -> list[str]:
 
 
 def build_vocab(
-    tokens: list[str], min_count: int = 0
+    tokens: list[str], min_count: int = 5
 ) -> tuple[dict[str, int], dict[int, str], np.ndarray]:
     """
     Builds a vocabulary from a list of tokens, filtering by minimum count.
@@ -44,3 +44,14 @@ def build_vocab(
     index_to_word = {idx: word for word, idx in word_to_index.items()}
     vocab_array = np.array(list(vocab.keys()))
     return word_to_index, index_to_word, vocab_array
+
+def encode_tokens(tokens: list[str], word2id: dict[str, int]) -> list[int]:
+    """
+    Encodes a list of tokens into their corresponding indices using a provided word-to-index mapping.
+    Args:
+        tokens (list[str]): A list of individual tokens (words) to be encoded.
+        word2id (dict[str, int]): A mapping from words to their corresponding indices.
+    Returns:
+        list[int]: A list of indices corresponding to the input tokens. Tokens not found in the mapping are ignored.
+    """
+    return [word2id[token] for token in tokens if token in word2id]
