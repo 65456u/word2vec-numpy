@@ -1,6 +1,7 @@
 import numpy as np
 from collections import Counter
 
+
 def read_text8(path: str) -> str:
     """
     Reads the contents of a (text8) file at the specified path and returns it as a string.
@@ -26,24 +27,29 @@ def split_tokens(corpus: str) -> list[str]:
 
 def build_vocab(
     tokens: list[str], min_count: int = 5
-) -> tuple[dict[str, int], dict[int, str], np.ndarray]:
+) -> tuple[dict[str, int], dict[int, str], np.ndarray, np.ndarray]:
     """
     Builds a vocabulary from a list of tokens, filtering by minimum count.
     Args:
         tokens (list[str]): A list of individual tokens (words).
         min_count (int): The minimum frequency a token must have to be included in the vocabulary.
     Returns:
-        tuple[dict[str, int], dict[int, str], np.ndarray]: A tuple containing:
+        tuple[dict[str, int], dict[int, str], np.ndarray, np.ndarray]: A tuple containing:
             - word_to_index (dict[str, int]): A mapping from words to their corresponding indices.
             - index_to_word (dict[int, str]): A mapping from indices back to their corresponding words.
             - vocab_array (np.ndarray): An array of the unique words in the vocabulary.
+            - counts_array (np.ndarray): Token counts aligned with vocab_array / word indices.
     """
     token_counts = Counter(tokens)
-    vocab = {word: count for word, count in token_counts.items() if count >= min_count}
-    word_to_index = {word: idx for idx, word in enumerate(vocab.keys())}
+    vocab_items = [
+        (word, count) for word, count in token_counts.items() if count >= min_count
+    ]
+    word_to_index = {word: idx for idx, (word, _) in enumerate(vocab_items)}
     index_to_word = {idx: word for word, idx in word_to_index.items()}
-    vocab_array = np.array(list(vocab.keys()))
-    return word_to_index, index_to_word, vocab_array
+    vocab_array = np.array([word for word, _ in vocab_items])
+    counts_array = np.array([count for _, count in vocab_items], dtype=np.int64)
+    return word_to_index, index_to_word, vocab_array, counts_array
+
 
 def encode_tokens(tokens: list[str], word2id: dict[str, int]) -> list[int]:
     """

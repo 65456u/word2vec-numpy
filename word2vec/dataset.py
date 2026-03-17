@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+
 def generate_skipgram_pairs(token_ids: list[int], window_size: int) -> list[tuple[int, int]]:
     """
     Generates skip-gram pairs from a list of token IDs based on a specified window size.
@@ -10,12 +13,48 @@ def generate_skipgram_pairs(token_ids: list[int], window_size: int) -> list[tupl
     pairs = []
     for i in range(len(token_ids)):
         center_id = token_ids[i]
-        # Define the context window boundaries
         start = max(0, i - window_size)
         end = min(len(token_ids), i + window_size + 1)
-        # Generate pairs for the context words within the window
         for j in range(start, end):
-            if j != i:  # Skip the center word itself
+            if j != i:
                 context_id = token_ids[j]
                 pairs.append((center_id, context_id))
     return pairs
+
+
+def iter_skipgram_pairs(
+    token_ids: list[int], window_size: int
+) -> list[tuple[int, int]]:
+    """
+    Alias for generate_skipgram_pairs to support a more explicit dataset API.
+    """
+    return generate_skipgram_pairs(token_ids, window_size)
+
+
+def generate_cbow_examples(
+    token_ids: list[int], window_size: int
+) -> list[tuple[list[int], int]]:
+    """
+    Generates CBOW examples where surrounding context ids predict the center word.
+    """
+    examples: list[tuple[list[int], int]] = []
+
+    for i in range(len(token_ids)):
+        start = max(0, i - window_size)
+        end = min(len(token_ids), i + window_size + 1)
+
+        context_ids = [token_ids[j] for j in range(start, end) if j != i]
+        if context_ids:
+            target_id = token_ids[i]
+            examples.append((context_ids, target_id))
+
+    return examples
+
+
+def iter_cbow_examples(
+    token_ids: list[int], window_size: int
+) -> list[tuple[list[int], int]]:
+    """
+    Alias for generate_cbow_examples to support a parallel dataset API.
+    """
+    return generate_cbow_examples(token_ids, window_size)
