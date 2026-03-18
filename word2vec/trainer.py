@@ -23,6 +23,7 @@ class Objective(Protocol):
         """
         Prepare any objective-specific state before training starts.
         """
+        raise NotImplementedError("Objective.initialize must be implemented by subclasses.")
 
     def train_step(
         self,
@@ -34,6 +35,7 @@ class Objective(Protocol):
         """
         Execute a single SGD update and return loss plus hidden-state gradient.
         """
+        raise NotImplementedError("Objective.train_step must be implemented by subclasses.")
 
 
 class Word2VecTrainer:
@@ -56,13 +58,14 @@ class Word2VecTrainer:
         Runs the objective-specific SGD loop and returns average loss per epoch.
         """
         self.objective.initialize(self.model)
+        materialized_examples = examples if isinstance(examples, Sequence) else list(examples)
         epoch_losses: list[float] = []
 
         for _ in range(config.epochs):
             total_loss = 0.0
             num_examples = 0
 
-            for example in examples:
+            for example in materialized_examples:
                 hidden, target_id, cache = self.architecture.forward(self.model, example)
                 loss, hidden_gradient = self.objective.train_step(
                     self.model,

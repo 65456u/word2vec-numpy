@@ -24,4 +24,9 @@ class CBOWArchitecture(Word2VecArchitecture[tuple[list[int], int], tuple[np.ndar
     ) -> None:
         context_index_array, context_size = cache
         scaled_gradient = hidden_gradient / context_size
-        model.input_embeddings[context_index_array] -= learning_rate * scaled_gradient
+        repeated_gradient = np.repeat(
+            (-learning_rate * scaled_gradient)[None, :],
+            context_index_array.shape[0],
+            axis=0,
+        )
+        np.add.at(model.input_embeddings, context_index_array, repeated_gradient)

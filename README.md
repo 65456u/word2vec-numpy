@@ -22,3 +22,25 @@ We use [text8](https://www.mattmahoney.net/dc/textdata.html) as our dataset, whi
 
 - Mikolov, T., Chen, K., Corrado, G., and Dean, J. (2013). *Efficient Estimation of Word Representations in Vector Space*. <https://arxiv.org/abs/1301.3781>
 - Mikolov, T., Sutskever, I., Chen, K., Corrado, G. S., and Dean, J. (2013). *Distributed Representations of Words and Phrases and their Compositionality*. NeurIPS 2013. <https://proceedings.neurips.cc/paper_files/paper/2013/file/9aa42b31882ec039965f3c4923ce901b-Paper.pdf>
+
+## Implemented Structure
+
+The project now supports:
+
+- Architectures: skip-gram and CBOW
+- Objectives: negative sampling, hierarchical softmax, and noise-contrastive estimation
+- Pure NumPy training through a shared `Word2VecTrainer`
+
+## Example Usage
+
+Train skip-gram with negative sampling:
+
+```bash
+python -m word2vec.run --path /path/to/text8 --architecture skipgram --objective neg
+```
+
+Train CBOW with hierarchical softmax:
+
+```bash
+python -m word2vec.run --path /path/to/text8 --architecture cbow --objective hs
+```

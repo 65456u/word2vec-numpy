@@ -57,7 +57,11 @@ class NegativeSamplingObjective(Word2VecObjective):
         )
 
         model.output_embeddings[target_id] -= learning_rate * positive_output_gradient
-        model.output_embeddings[negative_ids] -= learning_rate * negative_output_gradients
+        np.add.at(
+            model.output_embeddings,
+            negative_ids,
+            -learning_rate * negative_output_gradients,
+        )
 
         epsilon = 1e-12
         loss = -np.log(positive_probability + epsilon)

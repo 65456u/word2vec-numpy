@@ -49,6 +49,23 @@ class Word2Vec:
         target_embedding = self.output_embeddings[target_id]
         return float(np.dot(center_embedding, target_embedding))
 
+    def score_hidden_to_output(self, hidden: np.ndarray, output_id: int) -> float:
+        """
+        Computes the score between an arbitrary hidden representation and an output row.
+        """
+        return float(np.dot(hidden, self.output_embeddings[output_id]))
+
+    def ensure_output_capacity(self, size: int) -> None:
+        """
+        Grows the output embedding matrix to the requested number of rows.
+        """
+        current_size = self.output_embeddings.shape[0]
+        if size <= current_size:
+            return
+
+        extra_rows = np.random.rand(size - current_size, self.embedding_dim) * 0.01
+        self.output_embeddings = np.vstack([self.output_embeddings, extra_rows])
+
     def get_embedding(self, word_id: int) -> np.ndarray:
         """
         Backwards-compatible alias for the input embedding lookup.
