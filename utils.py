@@ -25,7 +25,7 @@ def cosine_similarity(a, b, eps=1e-12):
     return dot_product / max(norm_a * norm_b, eps)
 
 
-def nearest_neighbors(query_word, word_to_id, id_to_word, embeddings, top_k=5):
+def nearest_neighbors(query_word, word_to_id, id_to_word, embeddings, top_k=5, eps=1e-12):
     if query_word not in word_to_id:
         return []
 
@@ -37,7 +37,7 @@ def nearest_neighbors(query_word, word_to_id, id_to_word, embeddings, top_k=5):
         if word == query_word:
             continue
         embedding = embeddings[idx]
-        sim = cosine_similarity(query_embedding, embedding)
+        sim = cosine_similarity(query_embedding, embedding, eps=eps)
         if np.isnan(sim):
             continue
         similarities.append((word, sim))

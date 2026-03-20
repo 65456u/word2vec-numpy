@@ -82,6 +82,49 @@ def generate_training_pairs_array(
     return training_pairs
 
 
+def count_training_pairs(num_tokens: int, window_size: int) -> int:
+    if num_tokens <= 1 or window_size < 1:
+        return 0
+
+    max_offset = min(window_size, num_tokens - 1)
+    return 2 * sum(num_tokens - offset for offset in range(1, max_offset + 1))
+
+
+def stream_training_pair_chunks(
+    token_indices: list[int] | np.ndarray,
+    window_size: int,
+    chunk_size: int,
+):
+    token_indices = np.asarray(token_indices, dtype=np.int32)
+    num_tokens = token_indices.shape[0]
+
+    if num_tokens == 0 or window_size < 1:
+        return
+
+    chunk_size = max(int(chunk_size), 1)
+
+    for offset in range(1, window_size + 1):
+        span = num_tokens - offset
+        if span <= 0:
+            break
+
+        for start in range(0, span, chunk_size):
+            end = min(span, start + chunk_size)
+
+            forward_chunk = np.empty((end - start, 2), dtype=np.int32)
+            forward_chunk[:, 0] = token_indices[start + offset : end + offset]
+            forward_chunk[:, 1] = token_indices[start:end]
+            yield forward_chunk
+
+        for start in range(0, span, chunk_size):
+            end = min(span, start + chunk_size)
+
+            backward_chunk = np.empty((end - start, 2), dtype=np.int32)
+            backward_chunk[:, 0] = token_indices[start:end]
+            backward_chunk[:, 1] = token_indices[start + offset : end + offset]
+            yield backward_chunk
+
+
 def build_negative_sampling_distribution(
     counts_array: np.ndarray, power: float = 0.75
 ) -> np.ndarray:

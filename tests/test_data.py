@@ -9,11 +9,13 @@ from data import (
     build_negative_sampling_cdf,
     build_negative_sampling_distribution,
     build_vocab,
+    count_training_pairs,
     encode_tokens,
     generate_training_pairs,
     generate_training_pairs_array,
     read_text,
     sample_negative_ids,
+    stream_training_pair_chunks,
     subsample_token_ids,
     tokenize,
 )
@@ -78,6 +80,22 @@ class DataModuleTests(unittest.TestCase):
 
         self.assertEqual(pairs.dtype, np.int32)
         assert_array_equal(pairs, expected)
+
+    def test_count_training_pairs_matches_dense_generation(self):
+        dense_pairs = generate_training_pairs_array([0, 1, 2, 3], window_size=2)
+
+        self.assertEqual(count_training_pairs(4, window_size=2), len(dense_pairs))
+
+    def test_stream_training_pair_chunks_matches_dense_generation(self):
+        chunks = list(
+            stream_training_pair_chunks([0, 1, 2, 3], window_size=2, chunk_size=2)
+        )
+
+        streamed_pairs = np.concatenate(chunks, axis=0)
+        dense_pairs = generate_training_pairs_array([0, 1, 2, 3], window_size=2)
+
+        self.assertTrue(all(chunk.dtype == np.int32 for chunk in chunks))
+        assert_array_equal(streamed_pairs, dense_pairs)
 
     def test_build_negative_sampling_distribution_normalizes_powered_counts(self):
         counts = np.array([1, 4, 9], dtype=np.int64)

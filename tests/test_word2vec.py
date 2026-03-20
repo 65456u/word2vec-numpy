@@ -144,6 +144,39 @@ class Word2VecModuleTests(unittest.TestCase):
         self.assertAlmostEqual(returned_loss, loss_before)
         self.assertLess(loss_after, loss_before)
 
+    def test_train_batch_matches_gradient_update_with_repeated_indices(self):
+        center_ids = np.array([0, 0, 2], dtype=np.int64)
+        context_ids = np.array([1, 1, 0], dtype=np.int64)
+        negative_ids = np.array([[2, 2], [2, 1], [1, 2]], dtype=np.int64)
+        lr = 0.1
+
+        w_in_expected = self.w_in.copy()
+        w_out_expected = self.w_out.copy()
+        cache = forward_skipgram_negative_sampling(
+            center_ids,
+            context_ids,
+            negative_ids,
+            w_in_expected,
+            w_out_expected,
+        )
+        grad_w_in, grad_w_out = backward_skipgram_negative_sampling(
+            center_ids,
+            context_ids,
+            negative_ids,
+            w_in_expected,
+            w_out_expected,
+            cache,
+        )
+        w_in_expected -= lr * grad_w_in
+        w_out_expected -= lr * grad_w_out
+
+        w_in_actual = self.w_in.copy()
+        w_out_actual = self.w_out.copy()
+        train_batch(center_ids, context_ids, negative_ids, w_in_actual, w_out_actual, lr)
+
+        assert_allclose(w_in_actual, w_in_expected, rtol=1e-6, atol=1e-8)
+        assert_allclose(w_out_actual, w_out_expected, rtol=1e-6, atol=1e-8)
+
 
 if __name__ == "__main__":
     unittest.main()
