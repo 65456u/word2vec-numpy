@@ -44,6 +44,15 @@ In addition to the core SGNS formulation, the training pipeline includes several
 python train.py
 ```
 
+4. Inspect or export embeddings from a checkpoint:
+
+```bash
+python embed.py --checkpoint-dir artifacts/run_YYYYMMDD_HHMMSS_01 --word king
+python embed.py --checkpoint-dir artifacts/run_YYYYMMDD_HHMMSS_01 --words king queen man woman
+python embed.py --checkpoint-dir artifacts/run_YYYYMMDD_HHMMSS_01 --analogy man king woman
+python embed.py --checkpoint-dir artifacts/run_YYYYMMDD_HHMMSS_01 --export artifacts/embeddings.tsv
+```
+
 By default, each training run creates a new subdirectory under `artifacts/` and saves:
 
 - `model_epoch_XXX.npz` and `config_epoch_XXX.json` after each epoch
@@ -52,6 +61,7 @@ By default, each training run creates a new subdirectory under `artifacts/` and 
 ## Project Structure
 
 - `train.py`: training entry point, batching logic, learning-rate schedule, epoch loop, and checkpoint saving.
+- `embed.py`: checkpoint loader for querying word vectors, nearest neighbors, and exporting embeddings.
 - `word2vec.py`: SGNS parameter initialization, forward pass, loss, gradients, and embedding updates.
 - `data.py`: corpus reading, tokenization, vocabulary construction, subsampling, training-pair generation, and negative-sampling utilities.
 - `utils.py`: numerical helpers such as sigmoid/log-sigmoid, cosine similarity, nearest-neighbor lookup, and seed control.
