@@ -8,7 +8,9 @@ def init_parameters(vocab_size, embed_dim, rng, init_range_scale=0.5):
     w_in = rng.uniform(
         -init_bound, init_bound, (vocab_size, embed_dim)
     ).astype(np.float32)
-    w_out = np.zeros((vocab_size, embed_dim), dtype=np.float32)
+    w_out = rng.uniform(
+        -init_bound, init_bound, (vocab_size, embed_dim)
+    ).astype(np.float32)
     return w_in, w_out
 
 
@@ -46,17 +48,14 @@ def backward_skipgram_negative_sampling(
     pos_scores = cache["pos_scores"]
     neg_scores = cache["neg_scores"]
 
-    batch_size = center_embeds.shape[0]
-
     pos_coeff = sigmoid(pos_scores) - 1.0
     neg_coeffs = sigmoid(neg_scores)
 
-    grad_center = (
-        pos_coeff[:, None] * context_embeds
-        + np.sum(neg_coeffs[:, :, None] * negative_embeds, axis=1)
-    ) / batch_size
-    grad_pos_out = (pos_coeff[:, None] * center_embeds) / batch_size
-    grad_neg_out = (neg_coeffs[:, :, None] * center_embeds[:, None, :]) / batch_size
+    grad_center = pos_coeff[:, None] * context_embeds + np.sum(
+        neg_coeffs[:, :, None] * negative_embeds, axis=1
+    )
+    grad_pos_out = pos_coeff[:, None] * center_embeds
+    grad_neg_out = neg_coeffs[:, :, None] * center_embeds[:, None, :]
 
     grad_w_in = np.zeros_like(w_in)
     grad_w_out = np.zeros_like(w_out)
@@ -131,16 +130,13 @@ def train_batch(center_ids, context_ids, negative_ids, w_in, w_out, lr):
     negative_embeds = cache["negative_embeds"]
     pos_scores = cache["pos_scores"]
     neg_scores = cache["neg_scores"]
-    batch_size = center_embeds.shape[0]
-
     pos_coeff = sigmoid(pos_scores) - 1.0
     neg_coeffs = sigmoid(neg_scores)
 
-    grad_center = (
-        pos_coeff[:, None] * context_embeds
-        + np.sum(neg_coeffs[:, :, None] * negative_embeds, axis=1)
-    ) / batch_size
-    grad_pos_out = (pos_coeff[:, None] * center_embeds) / batch_size
+    grad_center = pos_coeff[:, None] * context_embeds + np.sum(
+        neg_coeffs[:, :, None] * negative_embeds, axis=1
+    )
+    grad_pos_out = pos_coeff[:, None] * center_embeds
 
     apply_sparse_updates(w_in, center_ids, -lr * grad_center)
     apply_sparse_updates(w_out, context_ids, -lr * grad_pos_out)
@@ -149,6 +145,6 @@ def train_batch(center_ids, context_ids, negative_ids, w_in, w_out, lr):
         negative_ids,
         neg_coeffs,
         center_embeds,
-        scale=-lr / batch_size,
+        scale=-lr,
     )
     return loss

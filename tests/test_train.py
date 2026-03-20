@@ -4,7 +4,7 @@ from unittest.mock import patch
 import numpy as np
 from numpy.testing import assert_array_equal
 
-from data import generate_training_pairs_array
+from data import generate_training_pairs_array, sample_dynamic_window_sizes
 from train import compute_decayed_lr, create_batches, sample_negative_matrix, train_epoch
 
 
@@ -73,6 +73,38 @@ class TrainModuleTests(unittest.TestCase):
             actual_batches[2][1],
             np.array([expected_pairs[4][1], expected_pairs[5][1]], dtype=np.int32),
         )
+
+    def test_create_batches_honors_dynamic_window_sizes(self):
+        token_ids = np.array([0, 1, 2, 3], dtype=np.int32)
+        window_sizes = np.array([1, 2, 1, 2], dtype=np.int32)
+
+        batches = list(
+            create_batches(
+                token_ids,
+                window_size=2,
+                batch_size=8,
+                shuffle=False,
+                dynamic_window_sizes=window_sizes,
+            )
+        )
+
+        self.assertEqual(len(batches), 1)
+        assert_array_equal(
+            batches[0][0],
+            np.array([1, 2, 3, 0, 1, 2, 3, 1], dtype=np.int32),
+        )
+        assert_array_equal(
+            batches[0][1],
+            np.array([0, 1, 2, 1, 2, 3, 1, 3], dtype=np.int32),
+        )
+
+    def test_create_batches_dynamic_windows_can_be_sampled_from_rng(self):
+        rng = np.random.default_rng(5)
+
+        window_sizes = sample_dynamic_window_sizes(6, 3, rng)
+
+        self.assertTrue(np.all(window_sizes >= 1))
+        self.assertTrue(np.all(window_sizes <= 3))
 
     def test_sample_negative_matrix_matches_batch_shape_and_excludes_context_ids(self):
         rng = np.random.default_rng(0)

@@ -2,6 +2,7 @@ import argparse
 import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from datetime import datetime
 
 import numpy as np
 from tqdm import tqdm
@@ -12,6 +13,7 @@ from data import (
     count_training_pairs,
     encode_tokens,
     read_text,
+    sample_dynamic_window_sizes,
     stream_training_pair_chunks,
     subsample_token_ids,
     tokenize,
@@ -32,12 +34,13 @@ class TrainConfig:
     num_negatives: int = 5
     negative_sampling_power: float = 0.75
     subsample_t: float = 1e-5
-    lr: float = 0.01
+    lr: float = 0.025
     epochs: int = 5
     seed: int = 42
     save_dir: str = "artifacts"
     init_range_scale: float = 0.5
     cosine_eps: float = 1e-12
+    dynamic_window: bool = True
 
 
 def _yield_batches_from_buffer(buffer, batch_size):
@@ -53,6 +56,7 @@ def create_batches(
     shuffle=True,
     rng=None,
     shuffle_buffer_size=None,
+    dynamic_window_sizes=None,
 ):
     token_ids = np.asarray(token_ids, dtype=np.int32)
     if token_ids.size == 0 or window_size < 1:
@@ -69,7 +73,10 @@ def create_batches(
         pending_chunks = []
         pending_pairs = 0
         for chunk in stream_training_pair_chunks(
-            token_ids, window_size, chunk_size=batch_size
+            token_ids,
+            window_size,
+            chunk_size=batch_size,
+            window_sizes=dynamic_window_sizes,
         ):
             pending_chunks.append(chunk)
             pending_pairs += len(chunk)
@@ -95,7 +102,10 @@ def create_batches(
     chunk_size = max(shuffle_buffer_size, batch_size)
 
     for chunk in stream_training_pair_chunks(
-        token_ids, window_size, chunk_size=chunk_size
+        token_ids,
+        window_size,
+        chunk_size=chunk_size,
+        window_sizes=dynamic_window_sizes,
     ):
         pending_chunks.append(chunk)
         pending_pairs += len(chunk)
@@ -179,10 +189,13 @@ def train_epoch(
     shuffle_buffer_size=None,
     total_training_pairs=None,
     pairs_processed_before_epoch=0,
+    dynamic_window_sizes=None,
 ):
     total_loss = 0.0
     num_batches = 0
-    total_pairs = count_training_pairs(len(token_ids), window_size)
+    total_pairs = count_training_pairs(
+        len(token_ids), window_size, window_sizes=dynamic_window_sizes
+    )
     if total_pairs == 0:
         return 0.0
     if total_training_pairs is None:
@@ -199,6 +212,7 @@ def train_epoch(
             shuffle=True,
             rng=rng,
             shuffle_buffer_size=shuffle_buffer_size,
+            dynamic_window_sizes=dynamic_window_sizes,
         ),
         total=total_steps,
         desc="Training",
@@ -257,15 +271,29 @@ def parse_args(defaults: TrainConfig | None = None):
         "--init_range_scale", type=float, default=defaults.init_range_scale
     )
     parser.add_argument("--cosine_eps", type=float, default=defaults.cosine_eps)
+    parser.add_argument(
+        "--dynamic_window",
+        action=argparse.BooleanOptionalAction,
+        default=defaults.dynamic_window,
+    )
     return parser.parse_args()
 
 
-def save_checkpoint(save_dir, w_in, w_out, word_to_id, id_to_word, config):
+def save_checkpoint(
+    save_dir,
+    w_in,
+    w_out,
+    word_to_id,
+    id_to_word,
+    config,
+    model_filename="model.npz",
+    config_filename="config.json",
+):
     save_path = Path(save_dir)
     save_path.mkdir(parents=True, exist_ok=True)
 
-    model_path = save_path / "model.npz"
-    config_path = save_path / "config.json"
+    model_path = save_path / model_filename
+    config_path = save_path / config_filename
 
     np.savez(model_path, w_in=w_in, w_out=w_out)
 
@@ -278,6 +306,42 @@ def save_checkpoint(save_dir, w_in, w_out, word_to_id, id_to_word, config):
 
     with open(config_path, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
+
+
+def create_run_save_dir(base_save_dir):
+    base_path = Path(base_save_dir)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_index = 1
+
+    while True:
+        run_path = base_path / f"run_{timestamp}_{run_index:02d}"
+        try:
+            run_path.mkdir(parents=True, exist_ok=False)
+            return run_path
+        except FileExistsError:
+            run_index += 1
+
+
+def save_epoch_checkpoint(
+    save_dir,
+    epoch,
+    w_in,
+    w_out,
+    word_to_id,
+    id_to_word,
+    config,
+):
+    epoch_suffix = f"epoch_{epoch:03d}"
+    save_checkpoint(
+        save_dir,
+        w_in,
+        w_out,
+        word_to_id,
+        id_to_word,
+        config,
+        model_filename=f"model_{epoch_suffix}.npz",
+        config_filename=f"config_{epoch_suffix}.json",
+    )
 
 
 def main():
@@ -297,16 +361,17 @@ def main():
         save_dir=args.save_dir,
         init_range_scale=args.init_range_scale,
         cosine_eps=args.cosine_eps,
+        dynamic_window=args.dynamic_window,
     )
     
     set_seed(config.seed)
     rng = np.random.default_rng(config.seed)
+    run_save_dir = create_run_save_dir(config.save_dir)
 
     text = read_text(config.data_path)
     tokens = tokenize(text)
     word_to_id, id_to_word, counts = build_vocab(tokens, min_count=config.min_count)
     token_ids = np.asarray(encode_tokens(tokens, word_to_id), dtype=np.int32)
-    token_ids = subsample_token_ids(token_ids, counts, config.subsample_t, rng)
     neg_cdf = build_negative_sampling_cdf(
         counts, power=config.negative_sampling_power
     )
@@ -318,13 +383,52 @@ def main():
         rng,
         init_range_scale=config.init_range_scale,
     )
-    total_pairs_per_epoch = count_training_pairs(len(token_ids), config.window_size)
-    total_training_pairs = total_pairs_per_epoch * config.epochs
+    epoch_seeds = rng.integers(
+        0, np.iinfo(np.int64).max, size=config.epochs, dtype=np.int64
+    )
+    epoch_pair_counts = []
 
-    for epoch in range(config.epochs):
+    for epoch_seed in epoch_seeds:
+        epoch_rng = np.random.default_rng(int(epoch_seed))
+        epoch_token_ids = subsample_token_ids(
+            token_ids, counts, config.subsample_t, epoch_rng
+        )
+        epoch_window_sizes = None
+        if config.dynamic_window:
+            epoch_window_sizes = sample_dynamic_window_sizes(
+                len(epoch_token_ids), config.window_size, epoch_rng
+            )
+        epoch_pair_counts.append(
+            count_training_pairs(
+                len(epoch_token_ids),
+                config.window_size,
+                window_sizes=epoch_window_sizes,
+            )
+        )
+
+    total_training_pairs = sum(epoch_pair_counts)
+    pairs_processed_so_far = 0
+    payload_config = asdict(config)
+    payload_config["base_save_dir"] = config.save_dir
+    payload_config["save_dir"] = str(run_save_dir)
+    payload_config["tokenizer"] = {
+        "lower": True,
+        "method": "whitespace_split",
+    }
+
+    for epoch, epoch_seed in enumerate(epoch_seeds):
         print(f"Epoch {epoch + 1}/{config.epochs}")
+        epoch_rng = np.random.default_rng(int(epoch_seed))
+        epoch_token_ids = subsample_token_ids(
+            token_ids, counts, config.subsample_t, epoch_rng
+        )
+        epoch_window_sizes = None
+        if config.dynamic_window:
+            epoch_window_sizes = sample_dynamic_window_sizes(
+                len(epoch_token_ids), config.window_size, epoch_rng
+            )
         avg_loss = train_epoch(
-            token_ids,
+            epoch_token_ids,
             config.window_size,
             w_in,
             w_out,
@@ -332,11 +436,22 @@ def main():
             config.batch_size,
             config.num_negatives,
             config.lr,
-            rng,
+            epoch_rng,
             total_training_pairs=total_training_pairs,
-            pairs_processed_before_epoch=epoch * total_pairs_per_epoch,
+            pairs_processed_before_epoch=pairs_processed_so_far,
+            dynamic_window_sizes=epoch_window_sizes,
         )
+        pairs_processed_so_far += epoch_pair_counts[epoch]
         print(f"Epoch {epoch + 1}/{config.epochs}: avg_loss={avg_loss:.4f}")
+        save_epoch_checkpoint(
+            run_save_dir,
+            epoch + 1,
+            w_in,
+            w_out,
+            word_to_id,
+            id_to_word,
+            payload_config,
+        )
 
     embeddings = w_in
     for word in ["king", "queen", "man", "woman"]:
@@ -353,13 +468,18 @@ def main():
                 ),
             )
 
-    payload_config = asdict(config)
-    payload_config["tokenizer"] = {
-        "lower": True,
-        "method": "whitespace_split",
-    }
     save_checkpoint(
-        config.save_dir,
+        run_save_dir,
+        w_in,
+        w_out,
+        word_to_id,
+        id_to_word,
+        payload_config,
+        model_filename=f"model_epoch_{config.epochs:03d}.npz",
+        config_filename=f"config_epoch_{config.epochs:03d}.json",
+    )
+    save_checkpoint(
+        run_save_dir,
         w_in,
         w_out,
         word_to_id,

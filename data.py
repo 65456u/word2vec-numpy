@@ -82,9 +82,33 @@ def generate_training_pairs_array(
     return training_pairs
 
 
-def count_training_pairs(num_tokens: int, window_size: int) -> int:
+def sample_dynamic_window_sizes(
+    num_tokens: int, max_window_size: int, rng: np.random.Generator
+) -> np.ndarray:
+    if num_tokens <= 0 or max_window_size < 1:
+        return np.empty(0, dtype=np.int32)
+
+    return rng.integers(1, max_window_size + 1, size=num_tokens, dtype=np.int32)
+
+
+def count_training_pairs(
+    num_tokens: int,
+    window_size: int,
+    window_sizes: np.ndarray | None = None,
+) -> int:
     if num_tokens <= 1 or window_size < 1:
         return 0
+
+    if window_sizes is not None:
+        window_sizes = np.asarray(window_sizes, dtype=np.int32)
+        if window_sizes.shape[0] != num_tokens:
+            raise ValueError("window_sizes must match num_tokens")
+
+        total_pairs = 0
+        for offset in range(1, min(window_size, num_tokens - 1) + 1):
+            total_pairs += np.count_nonzero(window_sizes[offset:] >= offset)
+            total_pairs += np.count_nonzero(window_sizes[:-offset] >= offset)
+        return int(total_pairs)
 
     max_offset = min(window_size, num_tokens - 1)
     return 2 * sum(num_tokens - offset for offset in range(1, max_offset + 1))
@@ -94,6 +118,7 @@ def stream_training_pair_chunks(
     token_indices: list[int] | np.ndarray,
     window_size: int,
     chunk_size: int,
+    window_sizes: np.ndarray | None = None,
 ):
     token_indices = np.asarray(token_indices, dtype=np.int32)
     num_tokens = token_indices.shape[0]
@@ -102,6 +127,10 @@ def stream_training_pair_chunks(
         return
 
     chunk_size = max(int(chunk_size), 1)
+    if window_sizes is not None:
+        window_sizes = np.asarray(window_sizes, dtype=np.int32)
+        if window_sizes.shape[0] != num_tokens:
+            raise ValueError("window_sizes must have the same length as token_indices")
 
     for offset in range(1, window_size + 1):
         span = num_tokens - offset
@@ -110,18 +139,40 @@ def stream_training_pair_chunks(
 
         for start in range(0, span, chunk_size):
             end = min(span, start + chunk_size)
+            if window_sizes is not None:
+                forward_mask = window_sizes[start + offset : end + offset] >= offset
+                if not np.any(forward_mask):
+                    continue
 
-            forward_chunk = np.empty((end - start, 2), dtype=np.int32)
-            forward_chunk[:, 0] = token_indices[start + offset : end + offset]
-            forward_chunk[:, 1] = token_indices[start:end]
+                forward_chunk = np.empty((np.count_nonzero(forward_mask), 2), dtype=np.int32)
+                forward_chunk[:, 0] = token_indices[start + offset : end + offset][
+                    forward_mask
+                ]
+                forward_chunk[:, 1] = token_indices[start:end][forward_mask]
+            else:
+                forward_chunk = np.empty((end - start, 2), dtype=np.int32)
+                forward_chunk[:, 0] = token_indices[start + offset : end + offset]
+                forward_chunk[:, 1] = token_indices[start:end]
             yield forward_chunk
 
         for start in range(0, span, chunk_size):
             end = min(span, start + chunk_size)
+            if window_sizes is not None:
+                backward_mask = window_sizes[start:end] >= offset
+                if not np.any(backward_mask):
+                    continue
 
-            backward_chunk = np.empty((end - start, 2), dtype=np.int32)
-            backward_chunk[:, 0] = token_indices[start:end]
-            backward_chunk[:, 1] = token_indices[start + offset : end + offset]
+                backward_chunk = np.empty(
+                    (np.count_nonzero(backward_mask), 2), dtype=np.int32
+                )
+                backward_chunk[:, 0] = token_indices[start:end][backward_mask]
+                backward_chunk[:, 1] = token_indices[start + offset : end + offset][
+                    backward_mask
+                ]
+            else:
+                backward_chunk = np.empty((end - start, 2), dtype=np.int32)
+                backward_chunk[:, 0] = token_indices[start:end]
+                backward_chunk[:, 1] = token_indices[start + offset : end + offset]
             yield backward_chunk
 
 

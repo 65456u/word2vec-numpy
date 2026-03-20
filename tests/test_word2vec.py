@@ -34,7 +34,7 @@ class Word2VecModuleTests(unittest.TestCase):
             dtype=np.float64,
         )
 
-    def _loss(self, w_in, w_out):
+    def _loss(self, w_in, w_out, average=True):
         cache = forward_skipgram_negative_sampling(
             self.center_ids,
             self.context_ids,
@@ -42,7 +42,10 @@ class Word2VecModuleTests(unittest.TestCase):
             w_in,
             w_out,
         )
-        return compute_sgns_loss(cache["pos_scores"], cache["neg_scores"])
+        loss = compute_sgns_loss(cache["pos_scores"], cache["neg_scores"])
+        if average:
+            return loss
+        return loss * self.center_ids.shape[0]
 
     def _numerical_gradient(self, parameter_name, epsilon=1e-6):
         base = self.w_in if parameter_name == "w_in" else self.w_out
@@ -55,11 +58,11 @@ class Word2VecModuleTests(unittest.TestCase):
             minus[index] -= epsilon
 
             if parameter_name == "w_in":
-                loss_plus = self._loss(plus, self.w_out)
-                loss_minus = self._loss(minus, self.w_out)
+                loss_plus = self._loss(plus, self.w_out, average=False)
+                loss_minus = self._loss(minus, self.w_out, average=False)
             else:
-                loss_plus = self._loss(self.w_in, plus)
-                loss_minus = self._loss(self.w_in, minus)
+                loss_plus = self._loss(self.w_in, plus, average=False)
+                loss_minus = self._loss(self.w_in, minus, average=False)
 
             numerical_grad[index] = (loss_plus - loss_minus) / (2.0 * epsilon)
 
@@ -74,9 +77,11 @@ class Word2VecModuleTests(unittest.TestCase):
         self.assertEqual(w_out.shape, (4, 3))
         self.assertEqual(w_in.dtype, np.float32)
         self.assertEqual(w_out.dtype, np.float32)
-        self.assertTrue(np.all(w_out == 0.0))
+        self.assertTrue(np.any(w_out != 0.0))
         self.assertTrue(np.all(w_in <= (0.5 / 3)))
         self.assertTrue(np.all(w_in >= (-0.5 / 3)))
+        self.assertTrue(np.all(w_out <= (0.5 / 3)))
+        self.assertTrue(np.all(w_out >= (-0.5 / 3)))
 
     def test_forward_scores_and_loss_match_manual_computation(self):
         cache = forward_skipgram_negative_sampling(

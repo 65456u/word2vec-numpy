@@ -15,6 +15,7 @@ from data import (
     generate_training_pairs_array,
     read_text,
     sample_negative_ids,
+    sample_dynamic_window_sizes,
     stream_training_pair_chunks,
     subsample_token_ids,
     tokenize,
@@ -96,6 +97,61 @@ class DataModuleTests(unittest.TestCase):
 
         self.assertTrue(all(chunk.dtype == np.int32 for chunk in chunks))
         assert_array_equal(streamed_pairs, dense_pairs)
+
+    def test_dynamic_window_sizes_are_bounded(self):
+        rng = np.random.default_rng(3)
+
+        window_sizes = sample_dynamic_window_sizes(8, 4, rng)
+
+        self.assertEqual(window_sizes.dtype, np.int32)
+        self.assertEqual(len(window_sizes), 8)
+        self.assertTrue(np.all(window_sizes >= 1))
+        self.assertTrue(np.all(window_sizes <= 4))
+
+    def test_stream_training_pair_chunks_honors_dynamic_window_sizes(self):
+        window_sizes = np.array([1, 2, 1, 2], dtype=np.int32)
+
+        chunks = list(
+            stream_training_pair_chunks(
+                [0, 1, 2, 3],
+                window_size=2,
+                chunk_size=4,
+                window_sizes=window_sizes,
+            )
+        )
+
+        streamed_pairs = np.concatenate(chunks, axis=0)
+        expected = np.array(
+            [
+                [1, 0],
+                [2, 1],
+                [3, 2],
+                [0, 1],
+                [1, 2],
+                [2, 3],
+                [3, 1],
+                [1, 3],
+            ],
+            dtype=np.int32,
+        )
+
+        assert_array_equal(streamed_pairs, expected)
+
+    def test_count_training_pairs_matches_dynamic_streamed_pairs(self):
+        window_sizes = np.array([1, 2, 1, 2], dtype=np.int32)
+        chunks = list(
+            stream_training_pair_chunks(
+                [0, 1, 2, 3],
+                window_size=2,
+                chunk_size=4,
+                window_sizes=window_sizes,
+            )
+        )
+
+        self.assertEqual(
+            count_training_pairs(4, window_size=2, window_sizes=window_sizes),
+            len(np.concatenate(chunks, axis=0)),
+        )
 
     def test_build_negative_sampling_distribution_normalizes_powered_counts(self):
         counts = np.array([1, 4, 9], dtype=np.int64)
