@@ -4,7 +4,13 @@ import random
 
 def sigmoid(x):
     x = np.asarray(x)
-    return np.where(x >= 0, 1.0 / (1.0 + np.exp(-x)), np.exp(x) / (1.0 + np.exp(x)))
+    out = np.empty_like(x, dtype=np.result_type(x, np.float32))
+    non_negative = x >= 0
+
+    out[non_negative] = 1.0 / (1.0 + np.exp(-x[non_negative]))
+    exp_x = np.exp(x[~non_negative])
+    out[~non_negative] = exp_x / (1.0 + exp_x)
+    return out
 
 
 def log_sigmoid(x):

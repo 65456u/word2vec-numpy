@@ -77,8 +77,25 @@ def train_batch(center_ids, context_ids, negative_ids, w_in, w_out, lr):
         center_ids, context_ids, negative_ids, w_in, w_out
     )
     loss = compute_sgns_loss(cache["pos_scores"], cache["neg_scores"])
-    grad_w_in, grad_w_out = backward_skipgram_negative_sampling(
-        center_ids, context_ids, negative_ids, w_in, w_out, cache
-    )
-    sgd_update(w_in, w_out, grad_w_in, grad_w_out, lr)
+
+    center_embeds = cache["center_embeds"]
+    context_embeds = cache["context_embeds"]
+    negative_embeds = cache["negative_embeds"]
+    pos_scores = cache["pos_scores"]
+    neg_scores = cache["neg_scores"]
+    batch_size = center_embeds.shape[0]
+
+    pos_coeff = sigmoid(pos_scores) - 1.0
+    neg_coeffs = sigmoid(neg_scores)
+
+    grad_center = (
+        pos_coeff[:, None] * context_embeds
+        + np.sum(neg_coeffs[:, :, None] * negative_embeds, axis=1)
+    ) / batch_size
+    grad_pos_out = (pos_coeff[:, None] * center_embeds) / batch_size
+    grad_neg_out = (neg_coeffs[:, :, None] * center_embeds[:, None, :]) / batch_size
+
+    np.add.at(w_in, center_ids, -lr * grad_center)
+    np.add.at(w_out, context_ids, -lr * grad_pos_out)
+    np.add.at(w_out, negative_ids, -lr * grad_neg_out)
     return loss

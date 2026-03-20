@@ -6,12 +6,15 @@ import numpy as np
 from numpy.testing import assert_allclose, assert_array_equal
 
 from data import (
+    build_negative_sampling_cdf,
     build_negative_sampling_distribution,
     build_vocab,
     encode_tokens,
     generate_training_pairs,
+    generate_training_pairs_array,
     read_text,
     sample_negative_ids,
+    subsample_token_ids,
     tokenize,
 )
 
@@ -54,6 +57,28 @@ class DataModuleTests(unittest.TestCase):
             [(0, 1), (1, 0), (1, 2), (2, 1), (2, 3), (3, 2)],
         )
 
+    def test_generate_training_pairs_array_returns_dense_pairs(self):
+        pairs = generate_training_pairs_array([0, 1, 2, 3], window_size=2)
+
+        expected = np.array(
+            [
+                [1, 0],
+                [2, 1],
+                [3, 2],
+                [0, 1],
+                [1, 2],
+                [2, 3],
+                [2, 0],
+                [3, 1],
+                [0, 2],
+                [1, 3],
+            ],
+            dtype=np.int32,
+        )
+
+        self.assertEqual(pairs.dtype, np.int32)
+        assert_array_equal(pairs, expected)
+
     def test_build_negative_sampling_distribution_normalizes_powered_counts(self):
         counts = np.array([1, 4, 9], dtype=np.int64)
 
@@ -62,6 +87,14 @@ class DataModuleTests(unittest.TestCase):
         expected = np.array([1, 2, 3], dtype=np.float64) / 6.0
         assert_allclose(distribution, expected)
         self.assertAlmostEqual(distribution.sum(), 1.0)
+
+    def test_build_negative_sampling_cdf_ends_at_one(self):
+        counts = np.array([1, 4, 9], dtype=np.int64)
+
+        cdf = build_negative_sampling_cdf(counts, power=0.5)
+
+        assert_allclose(cdf, np.array([1, 3, 6], dtype=np.float64) / 6.0)
+        self.assertEqual(cdf[-1], 1.0)
 
     def test_sample_negative_ids_respects_forbidden_indices(self):
         rng = np.random.default_rng(0)
@@ -77,6 +110,16 @@ class DataModuleTests(unittest.TestCase):
         self.assertEqual(negative_ids.dtype, np.int64)
         self.assertEqual(len(negative_ids), 6)
         self.assertTrue(np.all(negative_ids != 1))
+
+    def test_subsample_token_ids_drops_frequent_tokens_more_aggressively(self):
+        rng = np.random.default_rng(0)
+        token_ids = np.array([0] * 50 + [1] * 5, dtype=np.int32)
+        counts = np.array([1000, 1], dtype=np.int64)
+
+        subsampled = subsample_token_ids(token_ids, counts, threshold=1e-2, rng=rng)
+
+        self.assertTrue(np.count_nonzero(subsampled == 0) < 20)
+        self.assertEqual(np.count_nonzero(subsampled == 1), 5)
 
 
 if __name__ == "__main__":

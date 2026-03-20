@@ -51,11 +51,53 @@ def generate_training_pairs(
     return training_pairs
 
 
+def generate_training_pairs_array(
+    token_indices: list[int] | np.ndarray, window_size: int
+) -> np.ndarray:
+    token_indices = np.asarray(token_indices, dtype=np.int32)
+    num_tokens = token_indices.shape[0]
+
+    if num_tokens == 0 or window_size < 1:
+        return np.empty((0, 2), dtype=np.int32)
+
+    total_pairs = 2 * sum(num_tokens - offset for offset in range(1, min(window_size, num_tokens - 1) + 1))
+    training_pairs = np.empty((total_pairs, 2), dtype=np.int32)
+
+    cursor = 0
+    for offset in range(1, window_size + 1):
+        span = num_tokens - offset
+        if span <= 0:
+            break
+
+        next_cursor = cursor + span
+        training_pairs[cursor:next_cursor, 0] = token_indices[offset:]
+        training_pairs[cursor:next_cursor, 1] = token_indices[:-offset]
+        cursor = next_cursor
+
+        next_cursor = cursor + span
+        training_pairs[cursor:next_cursor, 0] = token_indices[:-offset]
+        training_pairs[cursor:next_cursor, 1] = token_indices[offset:]
+        cursor = next_cursor
+
+    return training_pairs
+
+
 def build_negative_sampling_distribution(
     counts_array: np.ndarray, power: float = 0.75
 ) -> np.ndarray:
     adjusted_counts = counts_array.astype(np.float64) ** power
     return adjusted_counts / adjusted_counts.sum()
+
+
+def build_negative_sampling_cdf(
+    counts_array: np.ndarray, power: float = 0.75
+) -> np.ndarray:
+    neg_cdf = np.cumsum(
+        build_negative_sampling_distribution(counts_array, power=power)
+    )
+    if neg_cdf.size > 0:
+        neg_cdf[-1] = 1.0
+    return neg_cdf
 
 
 def sample_negative_ids(
@@ -74,3 +116,26 @@ def sample_negative_ids(
             negative_indices.append(sampled_index)
 
     return np.array(negative_indices, dtype=np.int64)
+
+
+def subsample_token_ids(
+    token_ids: list[int] | np.ndarray,
+    counts_array: np.ndarray,
+    threshold: float,
+    rng: np.random.Generator,
+) -> np.ndarray:
+    token_ids = np.asarray(token_ids, dtype=np.int32)
+
+    if threshold <= 0.0 or token_ids.size == 0:
+        return token_ids
+
+    token_frequencies = counts_array.astype(np.float64)
+    token_frequencies /= token_frequencies.sum()
+
+    keep_probs = (np.sqrt(token_frequencies / threshold) + 1.0) * (
+        threshold / token_frequencies
+    )
+    keep_probs = np.clip(keep_probs, 0.0, 1.0)
+
+    keep_mask = rng.random(token_ids.shape[0]) < keep_probs[token_ids]
+    return token_ids[keep_mask]

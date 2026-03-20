@@ -3,14 +3,15 @@ import json
 from pathlib import Path
 
 import numpy as np
+from tqdm import tqdm
 
 from data import (
-    build_negative_sampling_distribution,
+    build_negative_sampling_cdf,
     build_vocab,
     encode_tokens,
-    generate_training_pairs,
+    generate_training_pairs_array,
     read_text,
-    sample_negative_ids,
+    subsample_token_ids,
     tokenize,
 )
 from utils import nearest_neighbors
@@ -18,38 +19,66 @@ from word2vec import init_parameters, train_batch
 
 
 def create_batches(pairs, batch_size, shuffle=True, rng=None):
-    indices = np.arange(len(pairs))
-    if shuffle:
-        if rng is None:
-            rng = np.random.default_rng()
-        rng.shuffle(indices)
-    for i in range(0, len(indices), batch_size):
+    pairs = np.asarray(pairs)
+    num_pairs = len(pairs)
+    if not shuffle:
+        for i in range(0, num_pairs, batch_size):
+            batch_pairs = pairs[i : i + batch_size]
+            yield batch_pairs[:, 0], batch_pairs[:, 1]
+        return
+
+    indices = np.arange(num_pairs, dtype=np.int32)
+    if rng is None:
+        rng = np.random.default_rng()
+    rng.shuffle(indices)
+
+    for i in range(0, num_pairs, batch_size):
         batch_indices = indices[i : i + batch_size]
-        batch_pairs = [pairs[idx] for idx in batch_indices]
-        center_ids = np.array([pair[0] for pair in batch_pairs], dtype=np.int64)
-        context_ids = np.array([pair[1] for pair in batch_pairs], dtype=np.int64)
-        yield center_ids, context_ids
+        batch_pairs = pairs[batch_indices]
+        yield batch_pairs[:, 0], batch_pairs[:, 1]
 
 
 def sample_negative_matrix(rng, neg_probs, batch_context_ids, num_negatives):
-    negative_ids = []
+    neg_probs = np.asarray(neg_probs, dtype=np.float64)
+    if neg_probs.size == 0:
+        return np.empty((batch_context_ids.shape[0], num_negatives), dtype=np.int64)
 
-    for context_id in batch_context_ids:
-        neg_ids = sample_negative_ids(
-            rng, neg_probs, k=num_negatives, forbidden_indices={int(context_id)}
-        )
-        negative_ids.append(neg_ids)
+    is_cdf = np.isclose(neg_probs[-1], 1.0) and np.all(np.diff(neg_probs) >= 0.0)
+    neg_cdf = neg_probs if is_cdf else np.cumsum(neg_probs)
+    neg_cdf[-1] = 1.0
 
-    return np.array(negative_ids, dtype=np.int64)
+    negative_ids = np.searchsorted(
+        neg_cdf,
+        rng.random((batch_context_ids.shape[0], num_negatives)),
+        side="right",
+    ).astype(np.int64, copy=False)
+
+    invalid_mask = negative_ids == batch_context_ids[:, None]
+    while invalid_mask.any():
+        negative_ids[invalid_mask] = np.searchsorted(
+            neg_cdf,
+            rng.random(invalid_mask.sum()),
+            side="right",
+        ).astype(np.int64, copy=False)
+        invalid_mask = negative_ids == batch_context_ids[:, None]
+
+    return negative_ids
 
 
 def train_epoch(pairs, w_in, w_out, neg_probs, batch_size, num_negatives, lr, rng):
     total_loss = 0.0
     num_batches = 0
+    total_steps = (len(pairs) + batch_size - 1) // batch_size
 
-    for center_ids, context_ids in create_batches(
-        pairs, batch_size, shuffle=True, rng=rng
-    ):
+    progress_bar = tqdm(
+        create_batches(pairs, batch_size, shuffle=True, rng=rng),
+        total=total_steps,
+        desc="Training",
+        unit="batch",
+        leave=False,
+    )
+
+    for center_ids, context_ids in progress_bar:
         negative_ids = sample_negative_matrix(
             rng, neg_probs, context_ids, num_negatives
         )
@@ -57,6 +86,11 @@ def train_epoch(pairs, w_in, w_out, neg_probs, batch_size, num_negatives, lr, rn
         loss = train_batch(center_ids, context_ids, negative_ids, w_in, w_out, lr)
         total_loss += loss
         num_batches += 1
+
+        progress_bar.set_postfix(
+            loss=f"{loss:.4f}",
+            avg_loss=f"{(total_loss / num_batches):.4f}",
+        )
 
     return total_loss / max(num_batches, 1)
 
@@ -71,6 +105,7 @@ def parse_args():
     parser.add_argument("--embed_dim", type=int, default=100)
     parser.add_argument("--batch_size", type=int, default=256)
     parser.add_argument("--num_negatives", type=int, default=5)
+    parser.add_argument("--subsample_t", type=float, default=1e-5)
     parser.add_argument("--lr", type=float, default=0.025)
     parser.add_argument("--epochs", type=int, default=3)
     parser.add_argument("--seed", type=int, default=42)
@@ -105,25 +140,27 @@ def main():
     text = read_text(args.data_path)
     tokens = tokenize(text)
     word_to_id, id_to_word, counts = build_vocab(tokens, min_count=args.min_count)
-    token_ids = encode_tokens(tokens, word_to_id)
-    pairs = generate_training_pairs(token_ids, window_size=args.window_size)
-    neg_probs = build_negative_sampling_distribution(counts)
+    token_ids = np.asarray(encode_tokens(tokens, word_to_id), dtype=np.int32)
+    token_ids = subsample_token_ids(token_ids, counts, args.subsample_t, rng)
+    pairs = generate_training_pairs_array(token_ids, window_size=args.window_size)
+    neg_cdf = build_negative_sampling_cdf(counts)
 
     vocab_size = len(word_to_id)
     w_in, w_out = init_parameters(vocab_size, args.embed_dim, rng)
 
     for epoch in range(args.epochs):
+        print(f"Epoch {epoch + 1}/{args.epochs}")
         avg_loss = train_epoch(
             pairs,
             w_in,
             w_out,
-            neg_probs,
+            neg_cdf,
             args.batch_size,
             args.num_negatives,
             args.lr,
             rng,
         )
-        print(f"Epoch {epoch + 1}: loss={avg_loss:.4f}")
+        print(f"Epoch {epoch + 1}/{args.epochs}: avg_loss={avg_loss:.4f}")
 
     embeddings = w_in
     for word in ["king", "queen", "man", "woman"]:
@@ -146,6 +183,7 @@ def main():
         "embed_dim": args.embed_dim,
         "batch_size": args.batch_size,
         "num_negatives": args.num_negatives,
+        "subsample_t": args.subsample_t,
         "lr": args.lr,
         "epochs": args.epochs,
         "seed": args.seed,
