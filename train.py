@@ -16,6 +16,7 @@ from data import (
 from utils import nearest_neighbors
 from word2vec import init_parameters, train_batch
 
+
 def create_batches(pairs, batch_size, shuffle=True, rng=None):
     indices = np.arange(len(pairs))
     if shuffle:
@@ -23,31 +24,32 @@ def create_batches(pairs, batch_size, shuffle=True, rng=None):
             rng = np.random.default_rng()
         rng.shuffle(indices)
     for i in range(0, len(indices), batch_size):
-        batch_indices = indices[i:i + batch_size]
+        batch_indices = indices[i : i + batch_size]
         batch_pairs = [pairs[idx] for idx in batch_indices]
         center_ids = np.array([pair[0] for pair in batch_pairs], dtype=np.int64)
         context_ids = np.array([pair[1] for pair in batch_pairs], dtype=np.int64)
         yield center_ids, context_ids
+
 
 def sample_negative_matrix(rng, neg_probs, batch_context_ids, num_negatives):
     negative_ids = []
 
     for context_id in batch_context_ids:
         neg_ids = sample_negative_ids(
-            rng,
-            neg_probs,
-            k=num_negatives,
-            forbidden_indices={int(context_id)}
+            rng, neg_probs, k=num_negatives, forbidden_indices={int(context_id)}
         )
         negative_ids.append(neg_ids)
 
     return np.array(negative_ids, dtype=np.int64)
 
+
 def train_epoch(pairs, w_in, w_out, neg_probs, batch_size, num_negatives, lr, rng):
     total_loss = 0.0
     num_batches = 0
 
-    for center_ids, context_ids in create_batches(pairs, batch_size, shuffle=True, rng=rng):
+    for center_ids, context_ids in create_batches(
+        pairs, batch_size, shuffle=True, rng=rng
+    ):
         negative_ids = sample_negative_matrix(
             rng, neg_probs, context_ids, num_negatives
         )
@@ -58,8 +60,11 @@ def train_epoch(pairs, w_in, w_out, neg_probs, batch_size, num_negatives, lr, rn
 
     return total_loss / max(num_batches, 1)
 
+
 def parse_args():
-    parser = argparse.ArgumentParser(description="Train skip-gram word2vec with negative sampling in NumPy")
+    parser = argparse.ArgumentParser(
+        description="Train skip-gram word2vec with negative sampling in NumPy"
+    )
     parser.add_argument("--data_path", type=str, default="data/text8")
     parser.add_argument("--min_count", type=int, default=5)
     parser.add_argument("--window_size", type=int, default=2)
@@ -91,6 +96,7 @@ def save_checkpoint(save_dir, w_in, w_out, word_to_id, id_to_word, config):
 
     with open(config_path, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
+
 
 def main():
     args = parse_args()
@@ -149,6 +155,7 @@ def main():
         },
     }
     save_checkpoint(args.save_dir, w_in, w_out, word_to_id, id_to_word, config)
+
 
 if __name__ == "__main__":
     main()

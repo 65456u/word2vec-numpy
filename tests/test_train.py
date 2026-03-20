@@ -23,7 +23,9 @@ class TrainModuleTests(unittest.TestCase):
         pairs = [(0, 10), (1, 11), (2, 12), (3, 13)]
         rng = np.random.default_rng(9)
 
-        actual_batches = list(create_batches(pairs, batch_size=2, shuffle=True, rng=rng))
+        actual_batches = list(
+            create_batches(pairs, batch_size=2, shuffle=True, rng=rng)
+        )
 
         expected_indices = np.arange(len(pairs))
         np.random.default_rng(9).shuffle(expected_indices)
@@ -64,7 +66,9 @@ class TrainModuleTests(unittest.TestCase):
 
     @patch("train.sample_negative_matrix")
     @patch("train.train_batch")
-    def test_train_epoch_returns_average_batch_loss(self, mock_train_batch, mock_sample_negative_matrix):
+    def test_train_epoch_returns_average_batch_loss(
+        self, mock_train_batch, mock_sample_negative_matrix
+    ):
         pairs = [(0, 1), (1, 2), (2, 0)]
         w_in = np.zeros((3, 2), dtype=np.float32)
         w_out = np.zeros((3, 2), dtype=np.float32)

@@ -17,7 +17,9 @@ class UtilsModuleTests(unittest.TestCase):
 
         assert_allclose(sigmoid_values, np.array([0.0, 0.5, 1.0]), atol=1e-12)
         self.assertTrue(np.isfinite(log_sigmoid_values).all())
-        assert_allclose(log_sigmoid_values, np.array([-1000.0, -np.log(2.0), 0.0]), atol=1e-10)
+        assert_allclose(
+            log_sigmoid_values, np.array([-1000.0, -np.log(2.0), 0.0]), atol=1e-10
+        )
 
     def test_cosine_similarity_returns_zero_for_zero_vector(self):
         similarity = cosine_similarity(np.array([0.0, 0.0]), np.array([2.0, 3.0]))
@@ -36,7 +38,9 @@ class UtilsModuleTests(unittest.TestCase):
             dtype=np.float64,
         )
 
-        neighbors = nearest_neighbors("king", word_to_id, id_to_word, embeddings, top_k=2)
+        neighbors = nearest_neighbors(
+            "king", word_to_id, id_to_word, embeddings, top_k=2
+        )
 
         self.assertEqual([word for word, _ in neighbors], ["queen", "man"])
         self.assertGreater(neighbors[0][1], neighbors[1][1])
