@@ -1,3 +1,9 @@
+# Artifacts
+artifacts/
+
+# Optimization log
+TRAINING_OPTIMIZATIONS.md
+
 # Python
 __pycache__/
 *.py[cod]
